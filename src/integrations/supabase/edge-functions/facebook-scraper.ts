@@ -1,92 +1,11 @@
 
-// This is a simplified version of the Facebook scraper that uses plain JavaScript
+// Facebook scraper using Apify API
 
 // CORS headers for browser requests
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
-// Mock data for posts since we can't use puppeteer in this environment
-const mockPosts = [
-  {
-    id: "post1",
-    content: "We're excited to announce our new product line coming next month!",
-    date: "2 hours ago",
-    postUrl: "https://www.facebook.com/example/posts/123456789",
-    likes: 245,
-    comments: 37,
-    shares: 12
-  },
-  {
-    id: "post2",
-    content: "Thank you to everyone who attended our virtual event yesterday. The recording will be available soon.",
-    date: "Yesterday at 2:30 PM",
-    postUrl: "https://www.facebook.com/example/posts/987654321",
-    likes: 189,
-    comments: 24,
-    shares: 8
-  },
-  {
-    id: "post3",
-    content: "Check out our latest blog post on industry trends for 2023.",
-    date: "March 5 at 10:15 AM",
-    postUrl: "https://www.facebook.com/example/posts/456789123",
-    likes: 132,
-    comments: 18,
-    shares: 15
-  }
-];
-
-// Mock data for comments
-const mockComments = {
-  "post1": [
-    {
-      id: "comment1",
-      author: "Jane Smith",
-      authorId: "user123",
-      content: "This is great news! Looking forward to seeing the new products.",
-      date: "1 hour ago",
-      likes: 12
-    },
-    {
-      id: "comment2",
-      author: "John Doe",
-      authorId: "user456",
-      content: "Will there be a pre-order option available?",
-      date: "2 hours ago",
-      likes: 5
-    }
-  ],
-  "post2": [
-    {
-      id: "comment3",
-      author: "Alice Johnson",
-      authorId: "user789",
-      content: "The event was amazing! Thank you for organizing it.",
-      date: "Yesterday at 3:15 PM",
-      likes: 8
-    }
-  ],
-  "post3": [
-    {
-      id: "comment4",
-      author: "Bob Wilson",
-      authorId: "user101",
-      content: "Great insights in this article. Very helpful!",
-      date: "March 5 at 11:30 AM",
-      likes: 3
-    },
-    {
-      id: "comment5",
-      author: "Carol Brown",
-      authorId: "user202",
-      content: "I'd love to see more content like this.",
-      date: "March 5 at 2:45 PM",
-      likes: 7
-    }
-  ]
 };
 
 // This is our main function that handles requests
@@ -102,6 +21,16 @@ Deno.serve(async (req) => {
     const url = requestData.url;
     const postId = requestData.postId;
     const limit = requestData.limit || 10;
+    
+    // Get Apify API token from environment variable
+    const APIFY_API_TOKEN = Deno.env.get('APIFY_API_TOKEN');
+    
+    if (!APIFY_API_TOKEN) {
+      return new Response(
+        JSON.stringify({ error: 'Apify API token is not configured' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!url) {
       return new Response(
@@ -113,28 +42,86 @@ Deno.serve(async (req) => {
     // Determine what to scrape
     const scrapeMode = postId ? 'comments' : 'posts';
     
-    // In a real implementation, this would use a headless browser or Facebook's API
-    // For now, we'll return mock data
     let result;
+    
     if (scrapeMode === 'posts') {
-      // Simulate a delay to mimic real scraping
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Use Apify's Facebook Pages Scraper
+      const response = await fetch('https://api.apify.com/v2/acts/apify~facebook-pages-scraper/run-sync-get-dataset-items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${APIFY_API_TOKEN}`
+        },
+        body: JSON.stringify({
+          "startUrls": [{ "url": url }],
+          "maxPosts": limit,
+          "commentsMode": "NONE", // We don't need comments in this request
+          "maxPostDate": new Date().toISOString(),
+          "maxComments": 0,
+          "maxCommentsDepth": 0
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Apify API error: ${response.status} ${errorText}`);
+      }
+      
+      const apifyData = await response.json();
+      
+      // Transform Apify data to our format
+      const posts = apifyData.map(post => ({
+        id: post.postId || post.postUrl.split('/').pop(),
+        content: post.text || '',
+        date: post.time || '',
+        postUrl: post.postUrl,
+        likes: post.likes || 0,
+        comments: post.comments || 0,
+        shares: post.shares || 0
+      }));
       
       result = {
         success: true,
-        data: mockPosts.slice(0, limit),
-        count: Math.min(mockPosts.length, limit),
+        data: posts,
+        count: posts.length,
         pageUrl: url
       };
     } else {
-      // Simulate a delay to mimic real scraping
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Use Apify's Facebook Comments Scraper
+      const response = await fetch('https://api.apify.com/v2/acts/apify~facebook-comment-scraper/run-sync-get-dataset-items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${APIFY_API_TOKEN}`
+        },
+        body: JSON.stringify({
+          "startUrls": [{ "url": url }],
+          "maxComments": limit,
+          "maxReplies": 0 // We don't need replies for now
+        })
+      });
       
-      const comments = mockComments[postId] || [];
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Apify API error: ${response.status} ${errorText}`);
+      }
+      
+      const apifyData = await response.json();
+      
+      // Transform Apify data to our format
+      const comments = apifyData.map(comment => ({
+        id: comment.commentId || comment.commentUrl.split('/').pop(),
+        author: comment.name || 'Unknown',
+        authorId: comment.profileUrl ? comment.profileUrl.split('/').pop() : undefined,
+        content: comment.text || '',
+        date: comment.time || '',
+        likes: comment.likes || 0
+      }));
+      
       result = {
         success: true,
-        data: comments.slice(0, limit),
-        count: Math.min(comments.length, limit),
+        data: comments,
+        count: comments.length,
         postUrl: url
       };
     }
