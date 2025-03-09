@@ -1,5 +1,5 @@
 
-// This is a simplified version of the Facebook scraper that doesn't rely on external dependencies
+// This is a simplified version of the Facebook scraper that uses plain JavaScript
 
 // CORS headers for browser requests
 const corsHeaders = {
@@ -7,16 +7,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-
-interface ScraperRequest {
-  url: string;
-  postId?: string;
-  limit?: number;
-  credentials?: {
-    email: string;
-    password: string;
-  };
-}
 
 // Mock data for posts since we can't use puppeteer in this environment
 const mockPosts = [
@@ -108,7 +98,10 @@ Deno.serve(async (req) => {
 
   try {
     // Parse request body
-    const { url, postId, limit = 10 } = await req.json() as ScraperRequest;
+    const requestData = await req.json();
+    const url = requestData.url;
+    const postId = requestData.postId;
+    const limit = requestData.limit || 10;
 
     if (!url) {
       return new Response(
