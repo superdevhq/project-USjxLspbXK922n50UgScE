@@ -44,8 +44,8 @@ export const extractPostsFromPage = async (options: ScraperOptions): Promise<Pos
     });
 
     if (error) {
-      console.error('Error extracting posts:', error);
-      throw new Error(error.message);
+      console.log("Error extracting posts:", error);
+      throw error;
     }
 
     if (!data.success) {
@@ -62,7 +62,7 @@ export const extractPostsFromPage = async (options: ScraperOptions): Promise<Pos
       shares: post.shares || 0
     }));
   } catch (error) {
-    console.error('Error in extractPostsFromPage:', error);
+    console.log("Error in extractPostsFromPage:", error);
     throw error;
   }
 };
@@ -86,8 +86,8 @@ export const extractCommentsFromPost = async (options: ScraperOptions): Promise<
     });
 
     if (error) {
-      console.error('Error extracting comments:', error);
-      throw new Error(error.message);
+      console.log("Error extracting comments:", error);
+      throw error;
     }
 
     if (!data.success) {
@@ -103,7 +103,7 @@ export const extractCommentsFromPost = async (options: ScraperOptions): Promise<
       likes: comment.likes || 0
     }));
   } catch (error) {
-    console.error('Error in extractCommentsFromPost:', error);
+    console.log("Error in extractCommentsFromPost:", error);
     throw error;
   }
 };
