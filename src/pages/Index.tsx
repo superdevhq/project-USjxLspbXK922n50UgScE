@@ -6,26 +6,24 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, AlertCircle, Facebook } from "lucide-react";
-
-interface Post {
-  id: string;
-  content: string;
-  date: string;
-  likes: number;
-  comments: number;
-  shares: number;
-}
-
-interface Comment {
-  id: string;
-  author: string;
-  content: string;
-  date: string;
-  likes: number;
-}
+import { Loader2, AlertCircle, Facebook, Download, Lock } from "lucide-react";
+import { 
+  extractPostsFromPage, 
+  extractCommentsFromPost, 
+  isValidFacebookUrl,
+  exportAsJson,
+  exportAsCsv,
+  downloadAsFile,
+  Post,
+  Comment
+} from "@/lib/facebook-scraper";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/ui/use-toast";
 
 const Index = () => {
+  const { toast } = useToast();
   const [url, setUrl] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,10 +31,19 @@ const Index = () => {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoadingComments, setIsLoadingComments] = useState<boolean>(false);
+  const [useCredentials, setUseCredentials] = useState<boolean>(false);
+  const [credentials, setCredentials] = useState<{ email: string; password: string }>({
+    email: "",
+    password: ""
+  });
 
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUrl(e.target.value);
     setError(null);
+  };
+
+  const handleCredentialChange = (field: 'email' | 'password', value: string) => {
+    setCredentials(prev => ({ ...prev, [field]: value }));
   };
 
   const extractPosts = async () => {
@@ -45,7 +52,7 @@ const Index = () => {
       return;
     }
 
-    if (!url.includes("facebook.com")) {
+    if (!isValidFacebookUrl(url)) {
       setError("Please enter a valid Facebook page URL");
       return;
     }
@@ -57,42 +64,28 @@ const Index = () => {
     setComments([]);
 
     try {
-      // This is a mock implementation since we can't actually scrape Facebook from the browser
-      // In a real implementation, this would call your backend service
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const scraperOptions = {
+        url,
+        limit: 10,
+        credentials: useCredentials ? credentials : undefined
+      };
       
-      // Mock data for demonstration
-      const mockPosts: Post[] = [
-        {
-          id: "1",
-          content: "We're excited to announce our new product line coming next month!",
-          date: "2023-05-15",
-          likes: 245,
-          comments: 37,
-          shares: 12
-        },
-        {
-          id: "2",
-          content: "Thank you to everyone who attended our virtual event yesterday. The recording will be available soon.",
-          date: "2023-05-10",
-          likes: 189,
-          comments: 24,
-          shares: 8
-        },
-        {
-          id: "3",
-          content: "Check out our latest blog post on industry trends for 2023.",
-          date: "2023-05-05",
-          likes: 132,
-          comments: 18,
-          shares: 15
-        }
-      ];
+      const extractedPosts = await extractPostsFromPage(scraperOptions);
+      setPosts(extractedPosts);
       
-      setPosts(mockPosts);
-    } catch (err) {
-      setError("Failed to extract posts. Please try again.");
+      toast({
+        title: "Posts extracted successfully",
+        description: `Found ${extractedPosts.length} posts from the page.`,
+      });
+    } catch (err: any) {
+      setError(`Failed to extract posts: ${err.message}`);
       console.error(err);
+      
+      toast({
+        variant: "destructive",
+        title: "Error extracting posts",
+        description: err.message,
+      });
     } finally {
       setIsLoading(false);
     }
@@ -104,41 +97,50 @@ const Index = () => {
     setComments([]);
 
     try {
-      // Mock implementation
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const scraperOptions = {
+        url: post.postUrl || url,
+        postId: post.id,
+        limit: 20,
+        credentials: useCredentials ? credentials : undefined
+      };
       
-      // Mock comments data
-      const mockComments: Comment[] = [
-        {
-          id: "c1",
-          author: "Jane Smith",
-          content: "This is great news! Looking forward to seeing the new products.",
-          date: "2023-05-15",
-          likes: 12
-        },
-        {
-          id: "c2",
-          author: "John Doe",
-          content: "Will there be a pre-order option available?",
-          date: "2023-05-15",
-          likes: 5
-        },
-        {
-          id: "c3",
-          author: "Alice Johnson",
-          content: "I've been waiting for this update. Can't wait!",
-          date: "2023-05-16",
-          likes: 8
-        }
-      ];
+      const extractedComments = await extractCommentsFromPost(scraperOptions);
+      setComments(extractedComments);
       
-      setComments(mockComments);
-    } catch (err) {
-      setError("Failed to extract comments. Please try again.");
+      toast({
+        title: "Comments extracted successfully",
+        description: `Found ${extractedComments.length} comments on this post.`,
+      });
+    } catch (err: any) {
+      setError(`Failed to extract comments: ${err.message}`);
       console.error(err);
+      
+      toast({
+        variant: "destructive",
+        title: "Error extracting comments",
+        description: err.message,
+      });
     } finally {
       setIsLoadingComments(false);
     }
+  };
+
+  const handleExportData = (type: 'json' | 'csv', dataType: 'posts' | 'comments') => {
+    const data = dataType === 'posts' ? posts : comments;
+    const filename = `facebook_${dataType}_${new Date().toISOString().split('T')[0]}`;
+    
+    if (type === 'json') {
+      const jsonData = exportAsJson(data);
+      downloadAsFile(jsonData, `${filename}.json`, 'json');
+    } else {
+      const csvData = exportAsCsv(data);
+      downloadAsFile(csvData, `${filename}.csv`, 'csv');
+    }
+    
+    toast({
+      title: "Export successful",
+      description: `${dataType} exported as ${type.toUpperCase()} file.`,
+    });
   };
 
   return (
@@ -161,7 +163,7 @@ const Index = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2">
+          <div className="flex gap-2 mb-4">
             <Input
               placeholder="https://www.facebook.com/example"
               value={url}
@@ -179,8 +181,66 @@ const Index = () => {
               )}
             </Button>
           </div>
+          
+          <div className="flex items-center space-x-2 mb-4">
+            <Switch 
+              id="use-credentials" 
+              checked={useCredentials}
+              onCheckedChange={setUseCredentials}
+            />
+            <Label htmlFor="use-credentials" className="cursor-pointer">Use Facebook credentials for better results</Label>
+            
+            {useCredentials && (
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Lock className="h-4 w-4 mr-2" />
+                    Configure Credentials
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Facebook Credentials</DialogTitle>
+                    <DialogDescription>
+                      Enter your Facebook login details to improve scraping reliability.
+                      Credentials are used only for the current session and are not stored.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="email" className="text-right">
+                        Email
+                      </Label>
+                      <Input
+                        id="email"
+                        value={credentials.email}
+                        onChange={(e) => handleCredentialChange('email', e.target.value)}
+                        className="col-span-3"
+                      />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                      <Label htmlFor="password" className="text-right">
+                        Password
+                      </Label>
+                      <Input
+                        id="password"
+                        type="password"
+                        value={credentials.password}
+                        onChange={(e) => handleCredentialChange('password', e.target.value)}
+                        className="col-span-3"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit">Save changes</Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
+          
           {error && (
-            <Alert variant="destructive" className="mt-4">
+            <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Error</AlertTitle>
               <AlertDescription>{error}</AlertDescription>
@@ -198,13 +258,26 @@ const Index = () => {
         </TabsList>
         
         <TabsContent value="posts">
+          {posts.length > 0 && (
+            <div className="flex justify-end mb-4 gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleExportData('json', 'posts')}>
+                <Download className="mr-2 h-4 w-4" />
+                Export as JSON
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => handleExportData('csv', 'posts')}>
+                <Download className="mr-2 h-4 w-4" />
+                Export as CSV
+              </Button>
+            </div>
+          )}
+          
           {posts.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {posts.map((post) => (
                 <Card key={post.id} className="overflow-hidden">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">
-                      Posted on {new Date(post.date).toLocaleDateString()}
+                      Posted on {post.date}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -256,6 +329,19 @@ const Index = () => {
             </div>
           )}
           
+          {comments.length > 0 && (
+            <div className="flex justify-end mb-4 gap-2">
+              <Button variant="outline" size="sm" onClick={() => handleExportData('json', 'comments')}>
+                <Download className="mr-2 h-4 w-4" />
+                Export as JSON
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => handleExportData('csv', 'comments')}>
+                <Download className="mr-2 h-4 w-4" />
+                Export as CSV
+              </Button>
+            </div>
+          )}
+          
           {isLoadingComments ? (
             <div className="text-center py-12 text-muted-foreground">
               <div className="flex flex-col items-center">
@@ -272,7 +358,7 @@ const Index = () => {
                       {comment.author}
                     </CardTitle>
                     <CardDescription className="text-xs">
-                      {new Date(comment.date).toLocaleDateString()}
+                      {comment.date}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -296,10 +382,10 @@ const Index = () => {
 
       <footer className="text-center text-sm text-muted-foreground">
         <p>
-          This is a stateless application. Data is not stored or saved between sessions.
+          This is a stateless application. Data is not stored between sessions.
         </p>
         <p className="mt-1">
-          Note: This is a demonstration with mock data. In a real implementation, you would need a backend service to handle the actual scraping.
+          For more reliable scraping, use Facebook credentials (they are used only for the current session).
         </p>
       </footer>
     </div>

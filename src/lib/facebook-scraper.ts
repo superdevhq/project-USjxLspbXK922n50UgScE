@@ -1,11 +1,11 @@
 
-// This is a placeholder for the actual scraping functionality
-// In a real implementation, this would call your backend service
+import { supabase } from "@/integrations/supabase/client";
 
 export interface Post {
   id: string;
   content: string;
   date: string;
+  postUrl?: string;
   likes: number;
   comments: number;
   shares: number;
@@ -14,78 +14,98 @@ export interface Post {
 export interface Comment {
   id: string;
   author: string;
+  authorId?: string;
   content: string;
   date: string;
   likes: number;
 }
 
-// Mock function to simulate extracting posts from a Facebook page
-export const extractPostsFromPage = async (url: string): Promise<Post[]> => {
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Mock data for demonstration
-  const mockPosts: Post[] = [
-    {
-      id: "1",
-      content: "We're excited to announce our new product line coming next month!",
-      date: "2023-05-15",
-      likes: 245,
-      comments: 37,
-      shares: 12
-    },
-    {
-      id: "2",
-      content: "Thank you to everyone who attended our virtual event yesterday. The recording will be available soon.",
-      date: "2023-05-10",
-      likes: 189,
-      comments: 24,
-      shares: 8
-    },
-    {
-      id: "3",
-      content: "Check out our latest blog post on industry trends for 2023.",
-      date: "2023-05-05",
-      likes: 132,
-      comments: 18,
-      shares: 15
+interface ScraperOptions {
+  url: string;
+  postId?: string;
+  limit?: number;
+  credentials?: {
+    email: string;
+    password: string;
+  };
+}
+
+/**
+ * Extract posts from a Facebook page using Supabase Edge Function
+ */
+export const extractPostsFromPage = async (options: ScraperOptions): Promise<Post[]> => {
+  try {
+    const { data, error } = await supabase.functions.invoke('facebook-scraper', {
+      body: {
+        url: options.url,
+        limit: options.limit || 10,
+        credentials: options.credentials
+      }
+    });
+
+    if (error) {
+      console.error('Error extracting posts:', error);
+      throw new Error(error.message);
     }
-  ];
-  
-  return mockPosts;
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to extract posts');
+    }
+
+    return data.data.map((post: any) => ({
+      id: post.id,
+      content: post.content,
+      date: post.date,
+      postUrl: post.postUrl,
+      likes: post.likes || 0,
+      comments: post.comments || 0,
+      shares: post.shares || 0
+    }));
+  } catch (error) {
+    console.error('Error in extractPostsFromPage:', error);
+    throw error;
+  }
 };
 
-// Mock function to simulate extracting comments from a post
-export const extractCommentsFromPost = async (postId: string): Promise<Comment[]> => {
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  
-  // Mock comments data
-  const mockComments: Comment[] = [
-    {
-      id: "c1",
-      author: "Jane Smith",
-      content: "This is great news! Looking forward to seeing the new products.",
-      date: "2023-05-15",
-      likes: 12
-    },
-    {
-      id: "c2",
-      author: "John Doe",
-      content: "Will there be a pre-order option available?",
-      date: "2023-05-15",
-      likes: 5
-    },
-    {
-      id: "c3",
-      author: "Alice Johnson",
-      content: "I've been waiting for this update. Can't wait!",
-      date: "2023-05-16",
-      likes: 8
+/**
+ * Extract comments from a Facebook post using Supabase Edge Function
+ */
+export const extractCommentsFromPost = async (options: ScraperOptions): Promise<Comment[]> => {
+  try {
+    if (!options.postId) {
+      throw new Error('Post ID is required to extract comments');
     }
-  ];
-  
-  return mockComments;
+
+    const { data, error } = await supabase.functions.invoke('facebook-scraper', {
+      body: {
+        url: options.url,
+        postId: options.postId,
+        limit: options.limit || 20,
+        credentials: options.credentials
+      }
+    });
+
+    if (error) {
+      console.error('Error extracting comments:', error);
+      throw new Error(error.message);
+    }
+
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to extract comments');
+    }
+
+    return data.data.map((comment: any) => ({
+      id: comment.id,
+      author: comment.author,
+      authorId: comment.authorId,
+      content: comment.content,
+      date: comment.date,
+      likes: comment.likes || 0
+    }));
+  } catch (error) {
+    console.error('Error in extractCommentsFromPost:', error);
+    throw error;
+  }
 };
 
 // Utility function to validate Facebook URLs
@@ -111,4 +131,17 @@ export const exportAsCsv = (data: any[]): string => {
   );
   
   return [headers, ...rows].join('\n');
+};
+
+// Function to download data as a file
+export const downloadAsFile = (data: string, filename: string, type: 'json' | 'csv') => {
+  const blob = new Blob([data], { type: type === 'json' ? 'application/json' : 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
