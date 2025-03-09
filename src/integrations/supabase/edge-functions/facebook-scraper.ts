@@ -69,16 +69,27 @@ Deno.serve(async (req) => {
       
       const apifyData = await response.json();
       
-      // Transform Apify data to our format
-      const posts = apifyData.map(post => ({
-        id: post.postId || post.postUrl.split('/').pop(),
-        content: post.text || '',
-        date: post.time || '',
-        postUrl: post.postUrl,
-        likes: post.likes || 0,
-        comments: post.comments || 0,
-        shares: post.shares || 0
-      }));
+      // Transform Apify data to our format with safer property access
+      const posts = apifyData.map(post => {
+        // Generate a unique ID if postId or postUrl is not available
+        let id = post.postId;
+        if (!id && post.postUrl) {
+          const urlParts = post.postUrl.split('/');
+          id = urlParts[urlParts.length - 1] || `post-${Math.random().toString(36).substring(2, 10)}`;
+        } else if (!id) {
+          id = `post-${Math.random().toString(36).substring(2, 10)}`;
+        }
+        
+        return {
+          id: id,
+          content: post.text || '',
+          date: post.time || '',
+          postUrl: post.postUrl || url,
+          likes: post.likes || 0,
+          comments: post.comments || 0,
+          shares: post.shares || 0
+        };
+      });
       
       result = {
         success: true,
@@ -108,15 +119,33 @@ Deno.serve(async (req) => {
       
       const apifyData = await response.json();
       
-      // Transform Apify data to our format
-      const comments = apifyData.map(comment => ({
-        id: comment.commentId || comment.commentUrl.split('/').pop(),
-        author: comment.name || 'Unknown',
-        authorId: comment.profileUrl ? comment.profileUrl.split('/').pop() : undefined,
-        content: comment.text || '',
-        date: comment.time || '',
-        likes: comment.likes || 0
-      }));
+      // Transform Apify data to our format with safer property access
+      const comments = apifyData.map(comment => {
+        // Generate a unique ID if commentId or commentUrl is not available
+        let id = comment.commentId;
+        if (!id && comment.commentUrl) {
+          const urlParts = comment.commentUrl.split('/');
+          id = urlParts[urlParts.length - 1] || `comment-${Math.random().toString(36).substring(2, 10)}`;
+        } else if (!id) {
+          id = `comment-${Math.random().toString(36).substring(2, 10)}`;
+        }
+        
+        // Extract authorId safely
+        let authorId;
+        if (comment.profileUrl) {
+          const urlParts = comment.profileUrl.split('/');
+          authorId = urlParts[urlParts.length - 1] || undefined;
+        }
+        
+        return {
+          id: id,
+          author: comment.name || 'Unknown',
+          authorId: authorId,
+          content: comment.text || '',
+          date: comment.time || '',
+          likes: comment.likes || 0
+        };
+      });
       
       result = {
         success: true,
